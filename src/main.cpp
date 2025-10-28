@@ -15,8 +15,8 @@ struct module
 
 // Code
 
-// Gate Triggered | Gate Overvoltage | Overtemp 1st warning | Ovetemp 2nd Warning | Bdot Fault
-//      16                    8                     4                 2             1
+// No COMMS | Gate Triggered | Gate Overvoltage | Overtemp 1st warning | Ovetemp 2nd Warning | Bdot Fault
+//    32          16                    8                     4                 2             1
 
 module my_module;
 SoftwareSerial IR(10, 11);
@@ -36,71 +36,88 @@ int x;
 int V_div = A3;
 int Temp_IC = A2;
 
-void Fibre_rx()
+void Fibre_RX_Event()
 {
   digitalWrite(Fibre_LED, HIGH);
 }
 
+void Gate_Trig_Event()
+{
+    x = my_module.code;
+    my_module.code = x | 16;
+  }
+
 void setup()
 {
   Serial.begin(9600);
-  IR.begin(9600);
+  IR.begin(4800);
   my_module.number = 'A';
 
   pinMode(Bdot_Stack, INPUT);      // Bdot Stack event
   pinMode(Bdot_Fault, INPUT);      // Bdot Fault event
   pinMode(Latch_RST, OUTPUT);      // Latch Reset
-  pinMode(Gate_Trig, INPUT);       // Gate Trigger event
+  digitalWrite(Latch_RST, HIGH);
   pinMode(Gate_OV, INPUT);         // Gate Overvoltage event
   pinMode(Fault_LED, OUTPUT);      // RED fault LED
+  digitalWrite(Fault_LED, LOW);
   pinMode(Bdot_Stack_LED, OUTPUT); // Thryistor fired
+  digitalWrite(Bdot_Stack_LED, LOW);
   pinMode(Fibre_LED, OUTPUT);      // Trigger received from Fibre
+  digitalWrite(Fibre_LED, LOW);
   pinMode(T_40C, INPUT);           // T > 40C
   pinMode(T_60C, INPUT);           // T> 60C
 
-  attachInterrupt(digitalPinToInterrupt(Fibre_RX), Fibre_rx, RISING);
+  attachInterrupt(digitalPinToInterrupt(Fibre_RX), Fibre_RX_Event, RISING);// interrupt if Trigger event detected on FIBRE RX
+  attachInterrupt(digitalPinToInterrupt(Gate_Trig), Gate_Trig_Event, RISING);// interrupt if Trigger event detected on FIBRE RX
+  digitalWrite(Latch_RST,LOW);
 }
 
 void loop()
 {
+/*
   my_module.voltage = analogRead(V_div);
+  Serial.print("V_div: ");
+  Serial.println(my_module.voltage);
   my_module.temp = analogRead(Temp_IC);
+  Serial.print("Temp: ");
+  Serial.println(my_module.temp);
+  Serial.print("Code: ");
+  Serial.println(my_module.code, BIN);
+  Serial.println("     Gate Triggered | Gate Overvoltage | Overtemp 1st warning | Ovetemp 2nd Warning | Bdot Fault");
+  Serial.println("--------------------------------------------------------------------------------------------------");
+  Serial.println();
+  delay(2000);
+  */
 
-  // my_module.voltage = random(2000, 4000);
-  // my_module.temp = random(20, 100);
-  my_module.comms = 1;
+  my_module.voltage = analogRead(V_div);
+  my_module.temp = ((analogRead(Temp_IC)*0.004887)-0.5)/0.01;
   // Codes are cleared after successful IR comms via latch reset
-  if (digitalRead(T_40C) == HIGH)
+  if (digitalRead(T_40C) == LOW)// external pull up to 5V
   {
     x = my_module.code;
-    my_module.code = x & 4;
+    my_module.code = x | 4;
   }
-  if (digitalRead(T_60C) == HIGH)
+  if (digitalRead(T_60C) == LOW)// external pull up to 5V
   {
     x = my_module.code;
-    my_module.code = x & 2;
+    my_module.code = x | 2;
     digitalWrite(Fault_LED, HIGH);
     digitalWrite(Fault_LED, HIGH);
   }
   if (digitalRead(Bdot_Fault) == HIGH)
   {
     x = my_module.code;
-    my_module.code = x & 1;
+    my_module.code = x | 1;
     digitalWrite(Fault_LED, HIGH);
   }
   if (digitalRead(Bdot_Stack) == HIGH)
   {
     digitalWrite(Bdot_Stack_LED, HIGH);
   }
-  if (digitalRead(Gate_Trig) == HIGH)
-  {
-    x = my_module.code;
-    my_module.code = x & 16;
-  }
   if (digitalRead(Gate_OV) == HIGH)
   {
     x = my_module.code;
-    my_module.code = x & 8;
+    my_module.code = x | 8;
   }
   if (IR.available())
   {
@@ -118,7 +135,7 @@ void loop()
         // correct module number
         Serial.println("For me");
         // send data via IR
-        String data = String(my_module.number) + ' ' + String(my_module.voltage) + ' ' + String(my_module.code) + ' ' + String(my_module.temp) + ' ' + String(my_module.Bdot_Fault) + ' ' + String(my_module.comms);
+        String data = String(my_module.number) + ' ' + String(my_module.number) + ' ' + String(my_module.voltage) + ' ' + String(my_module.temp) + ' ' + String(my_module.code);
         IR.println(data);
         IR.flush();
         Serial.println("Sent via IR: " + data);
@@ -127,11 +144,13 @@ void loop()
         digitalWrite(Fibre_LED, LOW);
         digitalWrite(Latch_RST, HIGH);
         delayMicroseconds(10);
-        digitalWrite(Latch_RST, HIGH);
+        digitalWrite(Latch_RST, LOW);
+        my_module.code=0;
       }
       else
       {
         Serial.println("Not for me");
+        Serial.println(inByte);
       }
       IR.flush();
     }
